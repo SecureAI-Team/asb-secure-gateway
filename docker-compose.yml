@@ -1,0 +1,49 @@
+version: "3.9"
+
+services:
+  api:
+    build: .
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/asb_gateway
+      OPA_URL: http://opa:8181
+      OPENAI_BASE_URL: https://api.openai.com
+    depends_on:
+      postgres:
+        condition: service_healthy
+      opa:
+        condition: service_started
+    ports:
+      - "8000:8000"
+
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: asb_gateway
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./docker/init:/docker-entrypoint-initdb.d:ro
+    ports:
+      - "5432:5432"
+
+  opa:
+    image: openpolicyagent/opa:0.63.0
+    command:
+      - "run"
+      - "--server"
+      - "--set=decision_logs.console=true"
+      - "/policies"
+    volumes:
+      - ./policies:/policies:ro
+    ports:
+      - "8181:8181"
+
+volumes:
+  postgres-data:
+
