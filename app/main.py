@@ -10,12 +10,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 
 from app.config import get_settings
-from app.container import (
-    get_agent_service,
-    get_llm_service,
-    get_opa_client,
-    get_rag_service,
-)
+from app.container import get_agent_service, get_opa_client, get_rag_service
 from app.routes import agent, llm, rag
 
 logger = logging.getLogger(__name__)
@@ -26,7 +21,6 @@ async def lifespan(_: FastAPI):
     settings = get_settings()
     logger.info("Starting %s", settings.app_name)
     # Prime singletons so we can close them later.
-    get_llm_service()
     get_rag_service()
     get_agent_service()
     try:

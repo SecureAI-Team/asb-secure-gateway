@@ -5,99 +5,169 @@ LLM proxy service that enforces policies before forwarding to OpenAI.
 from __future__ import annotations
 
 import logging
-from typing import Any, Dict
+from datetime import datetime, timezone
+from typing import Any, Dict, Tuple
+from uuid import uuid4
 
 import httpx
+from fastapi import HTTPException
 
 from app.config import Settings
-from app.models.events import (
-    EventContext,
-    EventOperation,
-    EventResource,
-    EventSubject,
-    SecurityEvent,
-)
+from app.models.asb_events import SecurityEventLlmInput
 from app.models.llm import (
     ChatCompletionChoice,
-    ChatCompletionMessage,
     ChatCompletionRequest,
     ChatCompletionResponse,
-    UsageMetrics,
+    ChatMessage,
 )
-from app.opa_client import OPAClient
-
-from .exceptions import PolicyDeniedError
+from app.opa_client import evaluate_policy
 
 logger = logging.getLogger(__name__)
 
 
-class LLMProxyService:
-    """Applies policy checks then proxies to an upstream OpenAI-compatible API."""
-
-    def __init__(self, settings: Settings, opa_client: OPAClient) -> None:
-        self._settings = settings
-        self._opa = opa_client
-
-    async def chat_completion(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        """Forward a chat completion request after running policy checks."""
-        if request.stream:
-            raise PolicyDeniedError("Streaming is disabled in this demo gateway")
-
-        event = SecurityEvent(
-            subject=EventSubject(user_id=request.user or "anonymous"),
-            operation=EventOperation(action="chat_completion", component="llm_proxy"),
-            resource=EventResource(type="llm", name=request.model),
-            context=EventContext(
-                metadata={
-                    "message_roles": [msg.role for msg in request.messages],
-                    "temperature": request.temperature,
-                }
-            ),
+async def handle_chat_completion(
+    request: ChatCompletionRequest,
+    settings: Settings,
+    user_id: str | None = None,
+) -> ChatCompletionResponse:
+    """Evaluate policy and forward the chat completion request upstream."""
+    if request.stream:
+        raise HTTPException(
+            status_code=400, detail={"message": "Streaming responses are not supported"}
         )
 
-        decision = await self._opa.evaluate("prompt/allow", event)
-        if not decision.allow:
-            raise PolicyDeniedError(decision.reason)
+    if not settings.openai_api_key:
+        raise HTTPException(
+            status_code=500,
+            detail={"message": "OPENAI_API_KEY is not configured for upstream access"},
+        )
 
-        if self._settings.openai_api_key:
-            return await self._forward_to_openai(request)
+    event = _build_security_event(request, settings, user_id)
 
-        logger.debug("OPENAI_API_KEY not configured, returning demo response")
-        return self._demo_response(request)
+    try:
+        opa_raw = await evaluate_policy("asb/prompt", event.model_dump())
+    except httpx.HTTPError as exc:  # pragma: no cover - network failure
+        logger.exception("OPA evaluation failed for event %s", event.event_id)
+        raise HTTPException(
+            status_code=502, detail={"message": "Policy evaluation failed"}
+        ) from exc
 
-    async def _forward_to_openai(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        """Forward the payload to the configured OpenAI-compatible endpoint."""
-        base_url = self._settings.openai_base_url.rstrip("/")
-        url = f"{base_url}/v1/chat/completions"
-        headers = {
-            "Authorization": f"Bearer {self._settings.openai_api_key}",
-            "Content-Type": "application/json",
+    allowed, reason = _parse_policy_result(opa_raw)
+    if not allowed:
+        logger.info("Policy denied event %s: %s", event.event_id, reason)
+        raise HTTPException(
+            status_code=403,
+            detail={"message": reason or "Prompt rejected by policy"},
+        )
+
+    logger.info("Policy allowed event %s", event.event_id)
+    return await _forward_to_upstream(request, settings)
+
+
+def _build_security_event(
+    request: ChatCompletionRequest, settings: Settings, user_id: str | None
+) -> SecurityEventLlmInput:
+    now = datetime.now(tz=timezone.utc)
+    subject = {"user": {"id": user_id or "anonymous"}}
+    operation = {
+        "category": "llm_completion",
+        "name": "chat_completion",
+        "direction": "input",
+        "stage": "pre",
+        "model": {"name": request.model, "provider": "upstream", "mode": "chat"},
+    }
+    resource = {
+        "llm": {
+            "messages": [message.model_dump() for message in request.messages],
         }
-        payload = request.model_dump(exclude_none=True)
+    }
+    context = {
+        "temperature": request.temperature,
+        "max_tokens": request.max_tokens,
+    }
+    return SecurityEventLlmInput(
+        event_id=str(uuid4()),
+        timestamp=now,
+        tenant_id=None,
+        app_id=getattr(settings, "app_name", None),
+        env=getattr(settings, "app_env", None),
+        subject=subject,
+        operation=operation,
+        resource=resource,
+        context={k: v for k, v in context.items() if v is not None},
+    )
+
+
+def _parse_policy_result(response: Dict[str, Any]) -> Tuple[bool, str | None]:
+    result_block = response.get("result")
+    if result_block is None:
+        return False, "Policy returned no decision"
+    if isinstance(result_block, bool):
+        return result_block, None
+    allow = bool(result_block.get("allow", False))
+    reason = result_block.get("reason")
+    return allow, reason
+
+
+async def _forward_to_upstream(
+    request: ChatCompletionRequest, settings: Settings
+) -> ChatCompletionResponse:
+    base_url = settings.openai_base_url.rstrip("/")
+    url = f"{base_url}/v1/chat/completions"
+    headers = {
+        "Authorization": f"Bearer {settings.openai_api_key}",
+        "Content-Type": "application/json",
+    }
+    payload = request.model_dump(exclude_none=True)
+    try:
         async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
-            return ChatCompletionResponse.model_validate(response.json())
+    except httpx.HTTPStatusError as exc:  # pragma: no cover - upstream failure
+        logger.warning(
+            "Upstream chat completion failed: status=%s body=%s",
+            exc.response.status_code,
+            exc.response.text,
+        )
+        raise HTTPException(
+            status_code=exc.response.status_code,
+            detail={"message": "Upstream model error", "upstream_status": exc.response.status_code},
+        ) from exc
+    except httpx.HTTPError as exc:  # pragma: no cover - network failure
+        logger.exception("Upstream chat completion network error")
+        raise HTTPException(
+            status_code=502, detail={"message": "Failed to reach upstream model"}
+        ) from exc
 
-    def _demo_response(self, request: ChatCompletionRequest) -> ChatCompletionResponse:
-        """Return a deterministic demo response when no upstream is configured."""
-        last_user = next(
-            (msg.content for msg in reversed(request.messages) if msg.role == "user"),
-            "",
+    return _map_response(response.json(), request)
+
+
+def _map_response(
+    payload: Dict[str, Any], request: ChatCompletionRequest
+) -> ChatCompletionResponse:
+    created_ts = payload.get(
+        "created", int(datetime.now(tz=timezone.utc).timestamp())
+    )
+    raw_choices = payload.get("choices") or []
+    choices: list[ChatCompletionChoice] = []
+    for idx, choice in enumerate(raw_choices):
+        message_payload = choice.get("message") or {}
+        message = ChatMessage(
+            role=message_payload.get("role", "assistant"),
+            content=message_payload.get("content", ""),
         )
-        message = ChatCompletionMessage(
-            role="assistant",
-            content=(
-                "This is a demo response from ASB Secure Gateway. "
-                "Upstream OpenAI connectivity is disabled; last user message was: "
-                f'"{last_user}".'
-            ),
+        choices.append(
+            ChatCompletionChoice(
+                index=choice.get("index", idx),
+                message=message,
+                finish_reason=choice.get("finish_reason"),
+            )
         )
-        choice = ChatCompletionChoice(index=0, message=message, finish_reason="stop")
-        usage = UsageMetrics(
-            prompt_tokens=len(request.messages) * 20,
-            completion_tokens=len(message.content.split()),
-            total_tokens=len(request.messages) * 20 + len(message.content.split()),
-        )
-        return ChatCompletionResponse(model=request.model, choices=[choice], usage=usage)
+
+    return ChatCompletionResponse(
+        id=payload.get("id", f"asb-{uuid4().hex}"),
+        created=created_ts,
+        model=payload.get("model", request.model),
+        choices=choices,
+    )
 
