@@ -8,7 +8,7 @@ import asyncio
 import logging
 from typing import List
 
-import asyncpg
+import asyncpg  # type: ignore[import-untyped]
 
 from app.config import Settings
 from app.models.events import (

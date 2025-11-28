@@ -41,7 +41,7 @@ class SecurityDecision(BaseModel):
 
 
 class SecurityEvent(BaseModel):
-    schema: str = Field(default=EVENT_SCHEMA)
+    schema_: str = Field(default=EVENT_SCHEMA, alias="schema")
     subject: EventSubject
     operation: EventOperation
     resource: EventResource
