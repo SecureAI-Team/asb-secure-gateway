@@ -37,4 +37,3 @@ class ChatCompletionResponse(BaseModel):
     )
     model: str
     choices: List[ChatCompletionChoice]
-

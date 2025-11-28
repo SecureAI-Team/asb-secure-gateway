@@ -24,4 +24,3 @@ class RAGSearchResult(BaseModel):
 
 class RAGSearchResponse(BaseModel):
     results: List[RAGSearchResult]
-

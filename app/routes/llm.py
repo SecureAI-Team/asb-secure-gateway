@@ -33,4 +33,3 @@ async def create_chat_completion(
         raise HTTPException(
             status_code=500, detail={"message": "Internal server error"}
         ) from exc
-

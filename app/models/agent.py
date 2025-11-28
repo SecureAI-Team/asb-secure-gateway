@@ -19,4 +19,3 @@ class AgentActionResponse(BaseModel):
     tool: str
     output: Dict[str, str]
     status: str = "success"
-

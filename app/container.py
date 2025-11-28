@@ -27,4 +27,3 @@ def get_agent_service() -> AgentService:
 
 def get_config() -> Settings:
     return get_settings()
-

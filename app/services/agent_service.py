@@ -67,4 +67,3 @@ class AgentService:
             "service": self._settings.app_name,
             "policy_backend": self._settings.opa_url,
         }
-

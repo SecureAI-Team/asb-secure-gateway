@@ -53,4 +53,3 @@ class SecurityEvent(BaseModel):
     def with_decision(self, allow: bool, reason: str | None = None) -> "SecurityEvent":
         self.decision = SecurityDecision(allow=allow, reason=reason)
         return self
-

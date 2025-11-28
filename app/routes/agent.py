@@ -28,4 +28,3 @@ async def execute_action(
             status_code=status.HTTP_403_FORBIDDEN,
             detail={"message": str(exc)},
         ) from exc
-

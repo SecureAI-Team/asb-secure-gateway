@@ -128,4 +128,3 @@ class RAGService:
             )
             for idx in range(min(top_k, 3))
         ]
-

@@ -79,4 +79,3 @@ async def evaluate_policy(path: str, input_event: Dict[str, Any]) -> Dict[str, A
         response = await client.post(url, json={"input": input_event})
         response.raise_for_status()
         return response.json()
-

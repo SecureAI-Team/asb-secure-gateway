@@ -8,4 +8,3 @@ class PolicyDeniedError(Exception):
         message = reason or "Request blocked by policy"
         super().__init__(message)
         self.reason = reason
-

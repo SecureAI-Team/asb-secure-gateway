@@ -120,7 +120,9 @@ async def _forward_to_upstream(
     }
     payload = request.model_dump(exclude_none=True)
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=10.0)) as client:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(30.0, connect=10.0)
+        ) as client:
             response = await client.post(url, headers=headers, json=payload)
             response.raise_for_status()
     except httpx.HTTPStatusError as exc:  # pragma: no cover - upstream failure
@@ -131,7 +133,10 @@ async def _forward_to_upstream(
         )
         raise HTTPException(
             status_code=exc.response.status_code,
-            detail={"message": "Upstream model error", "upstream_status": exc.response.status_code},
+            detail={
+                "message": "Upstream model error",
+                "upstream_status": exc.response.status_code,
+            },
         ) from exc
     except httpx.HTTPError as exc:  # pragma: no cover - network failure
         logger.exception("Upstream chat completion network error")
@@ -145,9 +150,7 @@ async def _forward_to_upstream(
 def _map_response(
     payload: Dict[str, Any], request: ChatCompletionRequest
 ) -> ChatCompletionResponse:
-    created_ts = payload.get(
-        "created", int(datetime.now(tz=timezone.utc).timestamp())
-    )
+    created_ts = payload.get("created", int(datetime.now(tz=timezone.utc).timestamp()))
     raw_choices = payload.get("choices") or []
     choices: list[ChatCompletionChoice] = []
     for idx, choice in enumerate(raw_choices):
@@ -170,4 +173,3 @@ def _map_response(
         model=payload.get("model", request.model),
         choices=choices,
     )
-

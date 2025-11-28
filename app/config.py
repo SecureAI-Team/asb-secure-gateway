@@ -21,18 +21,14 @@ class Settings(BaseSettings):
     openai_api_key: str | None = None
     openai_base_url: str = "https://api.openai.com"
 
-    database_url: str = (
-        "postgresql://postgres:postgres@postgres:5432/asb_gateway"
-    )
+    database_url: str = "postgresql://postgres:postgres@postgres:5432/asb_gateway"
     rag_table: str = "documents"
     rag_vector_column: str = "embedding"
     rag_text_column: str = "content"
     rag_metadata_column: str = "metadata"
     rag_top_k_default: int = 5
 
-    agent_allowed_tools: List[str] = Field(
-        default_factory=lambda: ["ping", "whoami"]
-    )
+    agent_allowed_tools: List[str] = Field(default_factory=lambda: ["ping", "whoami"])
 
     log_level: str = "INFO"
 
@@ -55,4 +51,3 @@ class Settings(BaseSettings):
 def get_settings() -> Settings:
     """Return a cached Settings instance."""
     return Settings()
-
