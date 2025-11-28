@@ -1,12 +1,14 @@
 # ASB Secure Gateway
 
+![CI](https://github.com/SecureAI-Team/asb-secure-gateway/actions/workflows/ci.yml/badge.svg)
+
 Minimal FastAPI + OPA reference that demonstrates:
 
-- - OpenAI-compatible `/v1/chat/completions` proxy guarded by prompt policies.
-- - `/v1/rag/search_safe` endpoint backed by Postgres + pgvector with safety checks.
-- - `/v1/agent/action/execute` minimal agent tool executor with policy enforcement.
-- - ASB Security Schema events shipped to OPA as `input` for every operation.
-- - Single docker-compose stack (API + Postgres/pgvector + OPA).
+- OpenAI-compatible `/v1/chat/completions` proxy guarded by prompt policies.
+- `/v1/rag/search_safe` endpoint backed by Postgres + pgvector with safety checks.
+- `/v1/agent/action/execute` minimal agent tool executor with policy enforcement.
+- ASB Security Schema events shipped to OPA as `input` for every operation.
+- Single docker-compose stack (API + Postgres/pgvector + OPA).
 
 ## Stack
 
@@ -97,3 +99,5 @@ curl -s http://localhost:8000/v1/agent/action/execute \
   -H "Content-Type: application/json" \
   -d '{"tool":"ping"}'
 ```
+
+Looking for commercial support, enterprise-specific rules, or expanded policies? Reach out via GitHub discussions or email the maintainer to discuss commercial licensing and premium rule packs.
