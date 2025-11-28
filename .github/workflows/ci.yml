@@ -20,7 +20,6 @@ jobs:
           POSTGRES_PASSWORD: asb
         ports:
           - 5432:5432
-        # optional health check to wait for Postgres
         options: >-
           --health-cmd="pg_isready -U asb -d asb"
           --health-interval=10s
@@ -28,7 +27,6 @@ jobs:
           --health-retries=5
 
     env:
-      # Make sure your app reads DATABASE_URL from env
       DATABASE_URL: postgresql://asb:asb@localhost:5432/asb
       APP_ENV: ci
 
@@ -42,15 +40,16 @@ jobs:
           python-version: '3.11'
           cache: 'pip'
 
-      - name: Install dependencies
+      - name: Install project dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
-          if [ -f requirements-dev.txt ]; then
-            pip install -r requirements-dev.txt
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
           fi
 
-      # 如果暂时还没有 black/ruff/mypy，可以先注释掉对应步骤
+      - name: Install dev tools (black, ruff, mypy, pytest)
+        run: |
+          pip install black ruff mypy pytest
 
       - name: Lint with black
         run: |
