@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+
+jobs:
+  lint-and-test:
+    name: Lint & Test
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_DB: asb
+          POSTGRES_USER: asb
+          POSTGRES_PASSWORD: asb
+        ports:
+          - 5432:5432
+        # optional health check to wait for Postgres
+        options: >-
+          --health-cmd="pg_isready -U asb -d asb"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      # Make sure your app reads DATABASE_URL from env
+      DATABASE_URL: postgresql://asb:asb@localhost:5432/asb
+      APP_ENV: ci
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          if [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          fi
+
+      # 如果暂时还没有 black/ruff/mypy，可以先注释掉对应步骤
+
+      - name: Lint with black
+        run: |
+          black --check app
+
+      - name: Lint with ruff
+        run: |
+          ruff check app
+
+      - name: Type check with mypy
+        run: |
+          mypy app
+
+      - name: Run tests with pytest
+        run: |
+          pytest
+
+  docker-build:
+    name: Build Docker image
+    runs-on: ubuntu-latest
+    needs: lint-and-test
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Build Docker image (no push)
+        run: |
+          docker build . -t asb-secure-gateway:ci
